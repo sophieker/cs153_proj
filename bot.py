@@ -74,6 +74,22 @@ async def ping(ctx, *, arg=None):
     else:
         await ctx.send(f"Pong! Your argument was {arg}")
 
+@bot.command(name="hello", help="Greets the user.")
+async def hello(ctx, *, arg=None):
+    if arg is None:
+        await ctx.send("hello world!")
+    else:
+        await ctx.send(f"hello {arg}!")
+
+@bot.command(name="mistral", help="Ask Mistral a question.")
+async def mistral(ctx, *, question=None):
+    if question is None:
+        await ctx.send("Please provide an input for Mistral")
+    else:
+        logger.info(f"Processing Mistral command from {ctx.author}: {question}")
+        response = await agent.run(ctx.message)
+        await ctx.send(response)
+
 
 # Start the bot, connecting it to the gateway
 bot.run(token)
