@@ -182,6 +182,7 @@ def build_brainstormer_context(log, iteration, iteration_limit):
     context = "[System]\n"
     context += ("You are the Brainstormer agent. Your task is to generate creative and analytical ideas "
                 "to address the user's query. Use the full conversation history below to build on previous ideas and refine your suggestions. "
+                "If search results are included in the conversation, treat them as accurate and current information. "
                 "Keep your response to 5 sentences or less, written in a single paragraph without bullet points or headings. "
                 "Don't overcomplicate problems - when an answer is clear, answer directly without trying to find hidden meanings. "
                 "Only use deeper reasoning when questions are genuinely complex or difficult. ")
@@ -196,6 +197,7 @@ def build_critic_context(log, iteration, iteration_limit):
     context = "[System]\n"
     context += ("You are the Critic agent. Your task is to evaluate the brainstormed ideas, flag any flaws or inaccuracies, "
                 "and suggest improvements. Use the full conversation history below to ensure your feedback is thorough and relevant. "
+                "If search results are included in the conversation, treat them as accurate and current information - do not question their validity. "
                 "Keep your response to 5 sentences or less, written in a single paragraph without bullet points or headings. "
                 "Don't overcomplicate problems - when an answer is clear, focus on direct feedback without trying to find hidden meanings. "
                 "Only use deeper critical analysis when questions are genuinely complex or difficult. ")
@@ -211,6 +213,7 @@ def build_synthesizer_context(log, iteration, iteration_limit):
     context += ("You are the Synthesizer agent. Your task is to transform the brainstormed ideas and critiques into concrete, "
                 "actionable steps or solutions. Focus on practicality and implementation details. "
                 "Consider both the creative suggestions from the Brainstormer and the concerns raised by the Critic. "
+                "If search results are included in the conversation, incorporate this factual information into your synthesis. "
                 "Keep your response to 5 sentences or less, written in a single paragraph without bullet points or headings. "
                 "Prioritize specific, implementable solutions over theoretical discussions. "
                 "If technical details are relevant, include them concisely.")
@@ -226,6 +229,7 @@ def build_moderator_context(log, iteration, iteration_limit):
     context += ("You are the Moderator agent. Your role is to manage the dialogue between the Brainstormer and Critic and Synthesizer agents. "
                 "Review the full conversation history below and determine who should contribute next. Ensure that the conversation stays "
                 "on track and converges to a coherent answer. "
+                "If search results are included in the conversation, ensure they are properly incorporated as factual information. "
                 "Keep your response to 5 sentences or less, written in a single paragraph without bullet points or headings. "
                 "You don't need to use all iterations - if a clear answer has been reached, end the conversation early. It is critical that you do not overcomplicate or over-iterate, \
                     but also do not end the conversation prematurely if what the Synthesizer provided is not yet complete.")
@@ -240,18 +244,44 @@ def build_moderator_context(log, iteration, iteration_limit):
                     Note that this summary is to be displayed to the user, so you shouldn't mention things about the thought process, just the answer]'")
     return context
 
-@bot.command(name="multiagent", help="Ask Mistral a question using a multi-agent conversation.")
+@bot.command(name="multiagent", help="Ask Mistral a question using a multi-agent conversation. Use --search to include web search results.")
 async def multiagent(ctx, *, question=None):
     if question is None:
         await ctx.send("Please provide an input for the multiagent conversation.")
         return
-
+        
+    use_search = False
+    if question.startswith("--search "):
+        use_search = True
+        question = question[len("--search "):].strip()
+    
     conversation_log = []
     conversation_log.append(f"User: {question}")
     iteration_limit = 3
     current_iteration = 1
 
     await ctx.send("**Starting multi-agent conversation...**")
+    
+    if use_search:
+        await ctx.send("**Searching for information first...**")
+        search_prompt = build_search_context(conversation_log, 1, 2)
+        search_decision = await agent.run(FakeMessage(search_prompt))
+        
+        if "DO_SEARCH:" in search_decision:
+            search_query = search_decision.split("DO_SEARCH:")[1].strip()
+            await ctx.send(f"**Search Agent**: Performing Google search for: `{search_query}`")
+            
+            raw_results = list(search(search_query, num_results=5, advanced=True))
+            
+            search_results_prompt = build_search_results_context(
+                conversation_log, raw_results, 2, 2
+            )
+            search_summary = await agent.run(FakeMessage(search_results_prompt))
+            
+            search_date = "as of today's date"
+            search_preamble = f"[The following information was gathered from a Google search {search_date} and should be considered accurate factual information]"
+            conversation_log.append(f"SearchResults: {search_preamble}\n{search_summary}")
+            await ctx.send(f"**Search Results**:\n{search_summary}")
 
     divider = "\n--------------------------------\n"
     
