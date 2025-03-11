@@ -141,23 +141,72 @@ def build_search_context(log, iteration, iteration_limit):
 
 def build_search_results_context(log, search_results, iteration, iteration_limit):
     """
-    Second prompt: The Search Agent has the raw search results and must produce
-    a concise summary for the main conversation.
+    Second prompt: The Search Agent processes and organizes search results
+    to produce a comprehensive, insight-driven summary.
     """
     context = "[System]\n"
     context += (
-        "You are the Search agent. Below is the raw information returned by your Google search. "
-        "Use it to craft a concise summary (3-5 sentences). Do NOT list all URLs. "
-        "Focus on the factual info needed to answer the user question.\n"
+        "You are the Search agent. Below is organized information returned by your Google search. "
+        "Synthesize a comprehensive answer that directly addresses the user's original question. "
+        "Focus on extracting key insights and presenting them in a logical flow. "
+        "Provide specific details and facts from multiple sources when available. "
+        "Your response should be 3-5 sentences, coherent and complete. "
     )
-    context += f"Iteration limit: {iteration_limit}.\n\n"
+    
+    # Extract the original user question from the conversation log
+    user_question = ""
+    for entry in reversed(log):
+        if entry.startswith("User:"):
+            user_question = entry[6:].strip()
+            break
+    
+    context += f"\n[Original Question]\n{user_question}\n\n"
+    context += f"[Iteration Info]\nCurrent iteration: {iteration} of {iteration_limit}.\n\n"
     context += "[Conversation History]\n"
     context += "\n".join(log) + "\n\n"
-    context += "[Search Results]\n"
-    for i, res in enumerate(search_results[:5], 1):
-        context += f"{i}. Title: {res.title}\n   Description: {res.description}\n"
+    
+    # Process and organize search results more effectively
+    context += "[Processed Search Results]\n"
+    
+    # Group results by potential relevance
+    highly_relevant = []
+    somewhat_relevant = []
+    
+    # Basic relevance sorting based on keyword matching with the question
+    question_keywords = set(user_question.lower().split())
+    for res in search_results[:5]:
+        title_and_desc = (res.title + " " + res.description).lower()
+        keyword_matches = sum(1 for keyword in question_keywords if keyword in title_and_desc)
+        
+        if keyword_matches >= 2:  # More matching keywords = higher relevance
+            highly_relevant.append(res)
+        else:
+            somewhat_relevant.append(res)
+    
+    # Present the most relevant results first
+    context += "Most Relevant Information:\n"
+    for i, res in enumerate(highly_relevant, 1):
+        context += f"{i}. {res.title}\n   Key Points: {res.description}\n\n"
+    
+    context += "Additional Information:\n"
+    for i, res in enumerate(somewhat_relevant, 1):
+        context += f"{i}. {res.title}\n   Details: {res.description}\n\n"
+    
+    # Extract key facts if possible
+    context += "Key Facts:\n"
+    all_text = " ".join(res.description for res in search_results[:5])
+    # Extract sentences that contain question keywords
+    sentences = [s.strip() for s in all_text.split('.') if s.strip()]
+    fact_sentences = []
+    for sentence in sentences:
+        if any(keyword in sentence.lower() for keyword in question_keywords):
+            fact_sentences.append(sentence)
+    
+    # Add the extracted facts (up to 5)
+    for i, fact in enumerate(fact_sentences[:5], 1):
+        context += f"- {fact}.\n"
+    
     context += "\nSearch Agent:\n"
-    context += f"[Iteration Info]\nCurrent iteration: {iteration} of {iteration_limit}.\n"
     return context
 
 @bot.command(name="searchagent", help="Use the search agent to gather info from Google.")

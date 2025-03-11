@@ -1,6 +1,7 @@
 import os
 from mistralai import Mistral
 import discord
+import asyncio
 
 MISTRAL_MODEL = "mistral-large-latest"
 SYSTEM_PROMPT = "You are a helpful assistant."
@@ -21,9 +22,16 @@ class MistralAgent:
             {"role": "user", "content": message.content},
         ]
 
-        response = await self.client.chat.complete_async(
-            model=MISTRAL_MODEL,
-            messages=messages,
-        )
+        try:
+            response = await self.client.chat.complete_async(
+                model=MISTRAL_MODEL,
+                messages=messages,
+            )
+            return response.choices[0].message.content
 
-        return response.choices[0].message.content
+        except Exception as e:
+            if "rate limit exceeded" in str(e).lower():
+                await asyncio.sleep(5)
+                return await self.run(message)
+
+            return "Error: Unable to process request due to API rate limit."
