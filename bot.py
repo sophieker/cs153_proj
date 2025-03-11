@@ -1,13 +1,11 @@
 import os
 import discord
 import logging
-
 from discord.ext import commands
 from dotenv import load_dotenv
 from agent import MistralAgent
-
 from googlesearch import search
-
+from collections import defaultdict
 
 PREFIX = "!"
 
@@ -21,6 +19,10 @@ bot = commands.Bot(command_prefix=PREFIX, intents=intents)
 agent = MistralAgent()
 
 token = os.getenv("DISCORD_TOKEN")
+
+# Session memory to store conversation history per user
+user_memories = defaultdict(list)
+MAX_MEMORY_LENGTH = 10  # Maximum number of interactions to remember per user
 
 class FakeMessage:
     def __init__(self, content):
@@ -50,6 +52,17 @@ async def on_message(message: discord.Message):
         
     await bot.process_commands(message)
 
+def get_user_memory(user_id):
+    """Retrieve the conversation memory for a specific user"""
+    return user_memories[user_id]
+
+def add_to_memory(user_id, role, content):
+    """Add a new message to the user's conversation memory"""
+    user_memories[user_id].append(f"{role}: {content}")
+    # Keep memory within size limit
+    if len(user_memories[user_id]) > MAX_MEMORY_LENGTH:
+        user_memories[user_id].pop(0)
+
 @bot.command(name="ping", help="Pings the bot.")
 async def ping(ctx, *, arg=None):
     if arg is None:
@@ -63,9 +76,14 @@ async def brainstorm(ctx, *, question=None):
         await ctx.send("Please provide a question for the Brainstormer.")
         return
     
-    conversation_log = [f"User: {question}"]
+    user_id = ctx.author.id
+    add_to_memory(user_id, "User", question)
+    
+    conversation_log = get_user_memory(user_id)
     brainstormer_prompt = build_brainstormer_context(conversation_log, 1, 1)
     response = await agent.run(FakeMessage(brainstormer_prompt))
+    
+    add_to_memory(user_id, "Brainstormer", response)
     await ctx.send(f"**Brainstormer's Response:**\n{response}")
 
 @bot.command(name="critique", help="Get feedback from the Critic agent.")
@@ -74,9 +92,14 @@ async def critique(ctx, *, idea=None):
         await ctx.send("Please provide an idea for the Critic to evaluate.")
         return
     
-    conversation_log = [f"User: {idea}"]
+    user_id = ctx.author.id
+    add_to_memory(user_id, "User", idea)
+    
+    conversation_log = get_user_memory(user_id)
     critic_prompt = build_critic_context(conversation_log, 1, 1)
     response = await agent.run(FakeMessage(critic_prompt))
+    
+    add_to_memory(user_id, "Critic", response)
     await ctx.send(f"**Critic's Response:**\n{response}")
 
 @bot.command(name="help_roles", help="Shows available agent roles and their functions.")
@@ -149,15 +172,17 @@ async def searchagent_cmd(ctx, *, question=None):
         await ctx.send("Please provide a query or question for the Search Agent.")
         return
 
-    conversation_log = []
-    conversation_log.append(f"User: {question}")
-
+    user_id = ctx.author.id
+    add_to_memory(user_id, "User", question)
+    
+    conversation_log = get_user_memory(user_id)
     iteration_limit = 2
     current_iteration = 1
 
     search_prompt = build_search_context(conversation_log, current_iteration, iteration_limit)
     initial_response = await agent.run(FakeMessage(search_prompt))
-    conversation_log.append("SearchAgent: " + initial_response)
+    
+    add_to_memory(user_id, "SearchAgent", initial_response)
 
     if "DO_SEARCH:" in initial_response:
         search_query = initial_response.split("DO_SEARCH:")[1].strip()
@@ -171,8 +196,8 @@ async def searchagent_cmd(ctx, *, question=None):
             conversation_log, raw_results, current_iteration, iteration_limit
         )
         final_summary = await agent.run(FakeMessage(search_results_prompt))
-        conversation_log.append("SearchAgent: " + final_summary)
-
+        
+        add_to_memory(user_id, "SearchAgent", final_summary)
         await ctx.send("**Search Agent Summary**:\n" + final_summary)
     else:
         await ctx.send("**Search Agent** did not request a search. Response:\n" + initial_response)
@@ -255,8 +280,10 @@ async def multiagent(ctx, *, question=None):
         use_search = True
         question = question[len("--search "):].strip()
     
-    conversation_log = []
-    conversation_log.append(f"User: {question}")
+    user_id = ctx.author.id
+    add_to_memory(user_id, "User", question)
+    
+    conversation_log = get_user_memory(user_id)
     iteration_limit = 3
     current_iteration = 1
 
@@ -280,7 +307,7 @@ async def multiagent(ctx, *, question=None):
             
             search_date = "as of today's date"
             search_preamble = f"[The following information was gathered from a Google search {search_date} and should be considered accurate factual information]"
-            conversation_log.append(f"SearchResults: {search_preamble}\n{search_summary}")
+            add_to_memory(user_id, "SearchResults", f"{search_preamble}\n{search_summary}")
             await ctx.send(f"**Search Results**:\n{search_summary}")
 
     divider = "\n--------------------------------\n"
@@ -288,24 +315,26 @@ async def multiagent(ctx, *, question=None):
     while current_iteration <= iteration_limit:
         await ctx.send(f"**Iteration {current_iteration} of {iteration_limit}**")
         
+        conversation_log = get_user_memory(user_id)
+        
         brainstormer_prompt = build_brainstormer_context(conversation_log, current_iteration, iteration_limit)
         brainstormer_response = await agent.run(FakeMessage(brainstormer_prompt))
-        conversation_log.append("Brainstormer: " + brainstormer_response)
+        add_to_memory(user_id, "Brainstormer", brainstormer_response)
         await ctx.send("**Brainstormer:**\n" + brainstormer_response + divider)
         
         critic_prompt = build_critic_context(conversation_log, current_iteration, iteration_limit)
         critic_response = await agent.run(FakeMessage(critic_prompt))
-        conversation_log.append("Critic: " + critic_response)
+        add_to_memory(user_id, "Critic", critic_response)
         await ctx.send("**Critic:**\n" + critic_response + divider)
         
         synthesizer_prompt = build_synthesizer_context(conversation_log, current_iteration, iteration_limit)
         synthesizer_response = await agent.run(FakeMessage(synthesizer_prompt))
-        conversation_log.append("Synthesizer: " + synthesizer_response)
+        add_to_memory(user_id, "Synthesizer", synthesizer_response)
         await ctx.send("**Synthesizer:**\n" + synthesizer_response + divider)
         
         moderator_prompt = build_moderator_context(conversation_log, current_iteration, iteration_limit)
         moderator_response = await agent.run(FakeMessage(moderator_prompt))
-        conversation_log.append("Moderator: " + moderator_response)
+        add_to_memory(user_id, "Moderator", moderator_response)
         await ctx.send("**Moderator:**\n" + moderator_response + divider)
         
         if "CONVO_OVER" in moderator_response:
@@ -320,5 +349,14 @@ async def multiagent(ctx, *, question=None):
     
     if current_iteration > iteration_limit:
         await ctx.send("**All iterations complete.**")
+
+@bot.command(name="clear_memory", help="Clear your conversation history with the bot.")
+async def clear_memory(ctx):
+    user_id = ctx.author.id
+    if user_id in user_memories:
+        user_memories[user_id] = []
+        await ctx.send("Your conversation history has been cleared.")
+    else:
+        await ctx.send("You don't have any conversation history to clear.")
 
 bot.run(token)
