@@ -1,11 +1,13 @@
 import os
 import discord
 import logging
-from discord.ext import commands
+import asyncio
+from discord.ext import commands, tasks
 from dotenv import load_dotenv
 from agent import MistralAgent
 from googlesearch import search
 from collections import defaultdict
+from datetime import datetime, timedelta
 
 PREFIX = "!"
 
@@ -20,9 +22,10 @@ agent = MistralAgent()
 
 token = os.getenv("DISCORD_TOKEN")
 
-# Session memory to store conversation history per user
 user_memories = defaultdict(list)
-MAX_MEMORY_LENGTH = 10  # Maximum number of interactions to remember per user
+MAX_MEMORY_LENGTH = 10
+
+scheduled_reminders = []
 
 class FakeMessage:
     def __init__(self, content):
@@ -35,6 +38,7 @@ async def on_ready():
     Prints a message on the terminal when the bot successfully connects.
     """
     logger.info(f"{bot.user} has connected to Discord!")
+    check_reminders.start()
 
 @bot.event
 async def on_message(message: discord.Message):
@@ -59,9 +63,66 @@ def get_user_memory(user_id):
 def add_to_memory(user_id, role, content):
     """Add a new message to the user's conversation memory"""
     user_memories[user_id].append(f"{role}: {content}")
-    # Keep memory within size limit
     if len(user_memories[user_id]) > MAX_MEMORY_LENGTH:
         user_memories[user_id].pop(0)
+
+@tasks.loop(seconds=30)
+async def check_reminders():
+    """Check if any reminders are due and send messages"""
+    current_time = datetime.now()
+    
+    due_reminders = []
+    for reminder in scheduled_reminders:
+        if current_time >= reminder['due_time']:
+            due_reminders.append(reminder)
+    
+    for reminder in due_reminders:
+        try:
+            channel = bot.get_channel(reminder['channel_id'])
+            if channel:
+                mention = f"<@{reminder['user_id']}>"
+                await channel.send(f"{mention} Reminder: {reminder['message']}")
+        except Exception as e:
+            logger.error(f"Error sending reminder: {e}")
+        
+        scheduled_reminders.remove(reminder)
+
+@bot.command(name="remindme", help="Set a reminder. Format: !remindme [message] [time]h|m. Example: !remindme 'Submit report' 2h")
+async def remindme(ctx, *, reminder_text=None):
+    if reminder_text is None:
+        await ctx.send("Please provide a reminder message and time. Format: `!remindme [message] [time]h|m`")
+        return
+    
+    try:
+        last_space_index = reminder_text.rstrip().rfind(" ")
+        if last_space_index == -1:
+            raise ValueError("Invalid format")
+        
+        message = reminder_text[:last_space_index].strip()
+        time_spec = reminder_text[last_space_index:].strip()
+        
+        if time_spec.endswith('h'):
+            duration = timedelta(hours=float(time_spec[:-1]))
+        elif time_spec.endswith('m'):
+            duration = timedelta(minutes=float(time_spec[:-1]))
+        else:
+            raise ValueError("Time must end with 'h' for hours or 'm' for minutes")
+        
+        due_time = datetime.now() + duration
+        
+        reminder = {
+            'user_id': ctx.author.id,
+            'channel_id': ctx.channel.id,
+            'message': message,
+            'due_time': due_time
+        }
+        scheduled_reminders.append(reminder)
+        
+        time_str = due_time.strftime("%H:%M:%S")
+        await ctx.send(f"I'll remind you about '{message}' at {time_str}.")
+    
+    except Exception as e:
+        await ctx.send(f"Error setting reminder: {e}. Please use format: `!remindme [message] [time]h|m`")
 
 @bot.command(name="ping", help="Pings the bot.")
 async def ping(ctx, *, arg=None):
@@ -153,7 +214,6 @@ def build_search_results_context(log, search_results, iteration, iteration_limit
         "Your response should be 3-5 sentences, coherent and complete. "
     )
     
-    # Extract the original user question from the conversation log
     user_question = ""
     for entry in reversed(log):
         if entry.startswith("User:"):
@@ -164,26 +224,22 @@ def build_search_results_context(log, search_results, iteration, iteration_limit
     context += f"[Iteration Info]\nCurrent iteration: {iteration} of {iteration_limit}.\n\n"
     context += "[Conversation History]\n"
     context += "\n".join(log) + "\n\n"
-    
-    # Process and organize search results more effectively
+
     context += "[Processed Search Results]\n"
     
-    # Group results by potential relevance
     highly_relevant = []
     somewhat_relevant = []
-    
-    # Basic relevance sorting based on keyword matching with the question
+
     question_keywords = set(user_question.lower().split())
     for res in search_results[:5]:
         title_and_desc = (res.title + " " + res.description).lower()
         keyword_matches = sum(1 for keyword in question_keywords if keyword in title_and_desc)
         
-        if keyword_matches >= 2:  # More matching keywords = higher relevance
+        if keyword_matches >= 2:
             highly_relevant.append(res)
         else:
             somewhat_relevant.append(res)
     
-    # Present the most relevant results first
     context += "Most Relevant Information:\n"
     for i, res in enumerate(highly_relevant, 1):
         context += f"{i}. {res.title}\n   Key Points: {res.description}\n\n"
@@ -192,17 +248,14 @@ def build_search_results_context(log, search_results, iteration, iteration_limit
     for i, res in enumerate(somewhat_relevant, 1):
         context += f"{i}. {res.title}\n   Details: {res.description}\n\n"
     
-    # Extract key facts if possible
     context += "Key Facts:\n"
     all_text = " ".join(res.description for res in search_results[:5])
-    # Extract sentences that contain question keywords
     sentences = [s.strip() for s in all_text.split('.') if s.strip()]
     fact_sentences = []
     for sentence in sentences:
         if any(keyword in sentence.lower() for keyword in question_keywords):
             fact_sentences.append(sentence)
     
-    # Add the extracted facts (up to 5)
     for i, fact in enumerate(fact_sentences[:5], 1):
         context += f"- {fact}.\n"
     
