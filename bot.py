@@ -61,6 +61,44 @@ async def ping(ctx, *, arg=None):
     else:
         await ctx.send(f"Pong! Your argument was {arg}")
 
+@bot.command(name="brainstorm", help="Get creative ideas from the Brainstormer agent.")
+async def brainstorm(ctx, *, question=None):
+    if question is None:
+        await ctx.send("Please provide a question for the Brainstormer.")
+        return
+    
+    conversation_log = [f"User: {question}"]
+    brainstormer_prompt = build_brainstormer_context(conversation_log, 1, 1)
+    response = await agent.run(FakeMessage(brainstormer_prompt))
+    await ctx.send(f"**Brainstormer's Response:**\n{response}")
+
+@bot.command(name="critique", help="Get feedback from the Critic agent.")
+async def critique(ctx, *, idea=None):
+    if idea is None:
+        await ctx.send("Please provide an idea for the Critic to evaluate.")
+        return
+    
+    conversation_log = [f"User: {idea}"]
+    critic_prompt = build_critic_context(conversation_log, 1, 1)
+    response = await agent.run(FakeMessage(critic_prompt))
+    await ctx.send(f"**Critic's Response:**\n{response}")
+
+@bot.command(name="help_roles", help="Shows available agent roles and their functions.")
+async def help_roles(ctx):
+    help_text = """
+**Available Agent Roles:**
+
+1. `!brainstorm <question>` - Get creative ideas and possibilities
+   Example: `!brainstorm How can I improve my coding skills?`
+
+2. `!critique <idea>` - Get evaluation and feedback on an idea
+   Example: `!critique I want to learn programming by watching YouTube videos`
+
+3. `!multiagent <question>` - Use all agents in a collaborative conversation
+   Example: `!multiagent What's the best way to learn machine learning?`
+"""
+    await ctx.send(help_text)
+
 def build_brainstormer_context(log, iteration, iteration_limit):
     context = "[System]\n"
     context += ("You are the Brainstormer agent. Your task is to generate creative and analytical ideas "
@@ -86,6 +124,21 @@ def build_critic_context(log, iteration, iteration_limit):
     context += "[Conversation History]\n"
     context += "\n".join(log) + "\n"
     context += "Critic:\n"
+    context += f"[Iteration Info]\nCurrent iteration: {iteration} of {iteration_limit}.\n"
+    return context
+
+def build_synthesizer_context(log, iteration, iteration_limit):
+    context = "[System]\n"
+    context += ("You are the Synthesizer agent. Your task is to transform the brainstormed ideas and critiques into concrete, "
+                "actionable steps or solutions. Focus on practicality and implementation details. "
+                "Consider both the creative suggestions from the Brainstormer and the concerns raised by the Critic. "
+                "Keep your response to 5 sentences or less, written in a single paragraph without bullet points or headings. "
+                "Prioritize specific, implementable solutions over theoretical discussions. "
+                "If technical details are relevant, include them concisely.")
+    context += f"The iteration limit is {iteration_limit} rounds; if this is the final round, focus on the most viable solution.\n"
+    context += "[Conversation History]\n"
+    context += "\n".join(log) + "\n"
+    context += "Synthesizer:\n"
     context += f"[Iteration Info]\nCurrent iteration: {iteration} of {iteration_limit}.\n"
     return context
 
@@ -133,6 +186,11 @@ async def multiagent(ctx, *, question=None):
         critic_response = await agent.run(FakeMessage(critic_prompt))
         conversation_log.append("Critic: " + critic_response)
         await ctx.send("**Critic:**\n" + critic_response + divider)
+        
+        synthesizer_prompt = build_synthesizer_context(conversation_log, current_iteration, iteration_limit)
+        synthesizer_response = await agent.run(FakeMessage(synthesizer_prompt))
+        conversation_log.append("Synthesizer: " + synthesizer_response)
+        await ctx.send("**Synthesizer:**\n" + synthesizer_response + divider)
         
         moderator_prompt = build_moderator_context(conversation_log, current_iteration, iteration_limit)
         moderator_response = await agent.run(FakeMessage(moderator_prompt))
