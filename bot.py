@@ -144,18 +144,20 @@ def build_synthesizer_context(log, iteration, iteration_limit):
 
 def build_moderator_context(log, iteration, iteration_limit):
     context = "[System]\n"
-    context += ("You are the Moderator agent. Your role is to manage the dialogue between the Brainstormer and Critic agents. "
+    context += ("You are the Moderator agent. Your role is to manage the dialogue between the Brainstormer and Critic and Synthesizer agents. "
                 "Review the full conversation history below and determine who should contribute next. Ensure that the conversation stays "
                 "on track and converges to a coherent answer. "
                 "Keep your response to 5 sentences or less, written in a single paragraph without bullet points or headings. "
-                "You don't need to use all iterations - if a clear answer has been reached, end the conversation early. It is critical that you do not overcomplicate or over-iterate.")
+                "You don't need to use all iterations - if a clear answer has been reached, end the conversation early. It is critical that you do not overcomplicate or over-iterate, \
+                    but also do not end the conversation prematurely if what the Synthesizer provided is not yet complete.")
     context += f"The iteration limit is {iteration_limit} rounds.\n"
     context += "[Conversation History]\n"
     context += "\n".join(log) + "\n"
     context += "Moderator:\n"
     context += f"[Iteration Info]\nCurrent iteration: {iteration} of {iteration_limit}.\n"
     context += ("If the conversation should continue, provide your thoughts. "
-                "If the conversation is complete, end with 'CONVO_OVER. SUMMARY: [your 2-3 sentence summary of the key points and conclusion. \
+                "If the conversation is complete, end with 'CONVO_OVER. SUMMARY: [your summary of the key points and conclusion. \
+                    If the question was simple, keep this to 1-2 sentences. If the question was complex/technical, you can write 5-6 sentences. \
                     Note that this summary is to be displayed to the user, so you shouldn't mention things about the thought process, just the answer]'")
     return context
 
