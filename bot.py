@@ -382,10 +382,7 @@ async def multiagent(ctx, *, question=None):
         use_search = True
         question = question[len("--search "):].strip()
     
-    user_id = ctx.author.id
-    add_to_memory(user_id, "User", question)
-    
-    conversation_log = get_user_memory(user_id)
+    conversation_log = [f"User: {question}"]
     iteration_limit = 3
     current_iteration = 1
 
@@ -409,7 +406,7 @@ async def multiagent(ctx, *, question=None):
             
             search_date = "as of today's date"
             search_preamble = f"[The following information was gathered from a Google search {search_date} and should be considered accurate factual information]"
-            add_to_memory(user_id, "SearchResults", f"{search_preamble}\n{search_summary}")
+            conversation_log.append(f"SearchResults: {search_preamble}\n{search_summary}")
             await ctx.send(f"**Search Results**:\n{search_summary}")
 
     divider = "\n--------------------------------\n"
@@ -417,26 +414,24 @@ async def multiagent(ctx, *, question=None):
     while current_iteration <= iteration_limit:
         await ctx.send(f"**Iteration {current_iteration} of {iteration_limit}**")
         
-        conversation_log = get_user_memory(user_id)
-        
         brainstormer_prompt = build_brainstormer_context(conversation_log, current_iteration, iteration_limit)
         brainstormer_response = await agent.run(FakeMessage(brainstormer_prompt))
-        add_to_memory(user_id, "Brainstormer", brainstormer_response)
+        conversation_log.append(f"Brainstormer: {brainstormer_response}")
         await ctx.send("**Brainstormer:**\n" + brainstormer_response + divider)
         
         critic_prompt = build_critic_context(conversation_log, current_iteration, iteration_limit)
         critic_response = await agent.run(FakeMessage(critic_prompt))
-        add_to_memory(user_id, "Critic", critic_response)
+        conversation_log.append(f"Critic: {critic_response}")
         await ctx.send("**Critic:**\n" + critic_response + divider)
         
         synthesizer_prompt = build_synthesizer_context(conversation_log, current_iteration, iteration_limit)
         synthesizer_response = await agent.run(FakeMessage(synthesizer_prompt))
-        add_to_memory(user_id, "Synthesizer", synthesizer_response)
+        conversation_log.append(f"Synthesizer: {synthesizer_response}")
         await ctx.send("**Synthesizer:**\n" + synthesizer_response + divider)
         
         moderator_prompt = build_moderator_context(conversation_log, current_iteration, iteration_limit)
         moderator_response = await agent.run(FakeMessage(moderator_prompt))
-        add_to_memory(user_id, "Moderator", moderator_response)
+        conversation_log.append(f"Moderator: {moderator_response}")
         await ctx.send("**Moderator:**\n" + moderator_response + divider)
         
         if "CONVO_OVER" in moderator_response:
