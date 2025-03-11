@@ -1,0 +1,4 @@
+googlesearch-python
+discord 
+mistralai
+python-dotenv

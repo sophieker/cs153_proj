@@ -6,26 +6,22 @@ from discord.ext import commands
 from dotenv import load_dotenv
 from agent import MistralAgent
 
+from googlesearch import search
+
+
 PREFIX = "!"
 
-# Setup logging
 logger = logging.getLogger("discord")
 
-# Load the environment variables
 load_dotenv()
 
-# Create the bot with all intents
-# The message content and members intent must be enabled in the Discord Developer Portal for the bot to work.
 intents = discord.Intents.all()
 bot = commands.Bot(command_prefix=PREFIX, intents=intents)
 
-# Import the Mistral agent from the agent.py file
 agent = MistralAgent()
 
-# Get the token from the environment variables
 token = os.getenv("DISCORD_TOKEN")
 
-# A simple wrapper to simulate a discord.Message with a content attribute.
 class FakeMessage:
     def __init__(self, content):
         self.content = content
@@ -98,6 +94,89 @@ async def help_roles(ctx):
    Example: `!multiagent What's the best way to learn machine learning?`
 """
     await ctx.send(help_text)
+
+def build_search_context(log, iteration, iteration_limit):
+    """
+    First prompt: The Search Agent decides if it needs to do a Google search.
+    It may respond with 'DO_SEARCH: <query>' if it wants you to gather info,
+    or it may respond with a direct answer if no search is needed.
+    """
+    context = "[System]\n"
+    context += (
+        "You are the Search agent. Your role is to determine if a web search is required "
+        "to gather factual information. If you decide to do a search, respond with a line "
+        "starting with 'DO_SEARCH:' followed by the query terms. If no search is needed, "
+        "just provide a direct answer.\n"
+    )
+    context += f"Iteration limit: {iteration_limit}.\n"
+    context += "[Conversation History]\n"
+    context += "\n".join(log) + "\n"
+    context += "Search Agent:\n"
+    context += f"[Iteration Info]\nCurrent iteration: {iteration} of {iteration_limit}.\n"
+    return context
+
+
+def build_search_results_context(log, search_results, iteration, iteration_limit):
+    """
+    Second prompt: The Search Agent has the raw search results and must produce
+    a concise summary for the main conversation.
+    """
+    context = "[System]\n"
+    context += (
+        "You are the Search agent. Below is the raw information returned by your Google search. "
+        "Use it to craft a concise summary (3-5 sentences). Do NOT list all URLs. "
+        "Focus on the factual info needed to answer the user question.\n"
+    )
+    context += f"Iteration limit: {iteration_limit}.\n\n"
+    context += "[Conversation History]\n"
+    context += "\n".join(log) + "\n\n"
+    context += "[Search Results]\n"
+    for i, res in enumerate(search_results[:5], 1):
+        context += f"{i}. Title: {res.title}\n   Description: {res.description}\n"
+    context += "\nSearch Agent:\n"
+    context += f"[Iteration Info]\nCurrent iteration: {iteration} of {iteration_limit}.\n"
+    return context
+
+@bot.command(name="searchagent", help="Use the search agent to gather info from Google.")
+async def searchagent_cmd(ctx, *, question=None):
+    """
+    Demonstration command that triggers the Search Agent:
+      1) Agent decides whether to search.
+      2) We run the search if requested.
+      3) Agent summarizes the search results.
+    """
+    if question is None:
+        await ctx.send("Please provide a query or question for the Search Agent.")
+        return
+
+    conversation_log = []
+    conversation_log.append(f"User: {question}")
+
+    iteration_limit = 2
+    current_iteration = 1
+
+    search_prompt = build_search_context(conversation_log, current_iteration, iteration_limit)
+    initial_response = await agent.run(FakeMessage(search_prompt))
+    conversation_log.append("SearchAgent: " + initial_response)
+
+    if "DO_SEARCH:" in initial_response:
+        search_query = initial_response.split("DO_SEARCH:")[1].strip()
+
+        await ctx.send(f"**Search Agent**: Performing Google search for: `{search_query}`")
+
+        raw_results = list(search(search_query, num_results=5, advanced=True))
+
+        current_iteration += 1
+        search_results_prompt = build_search_results_context(
+            conversation_log, raw_results, current_iteration, iteration_limit
+        )
+        final_summary = await agent.run(FakeMessage(search_results_prompt))
+        conversation_log.append("SearchAgent: " + final_summary)
+
+        await ctx.send("**Search Agent Summary**:\n" + final_summary)
+    else:
+        await ctx.send("**Search Agent** did not request a search. Response:\n" + initial_response)
+
 
 def build_brainstormer_context(log, iteration, iteration_limit):
     context = "[System]\n"
