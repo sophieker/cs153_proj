@@ -163,7 +163,7 @@ async def critique(ctx, *, idea=None):
     add_to_memory(user_id, "Critic", response)
     await ctx.send(f"**Critic's Response:**\n{response}")
 
-@bot.command(name="help", help="Displays available commands.")
+@bot.command(name="commands", help="Displays available commands.")
 async def custom_help(ctx):
     help_text = """
 **Bot Commands:**
