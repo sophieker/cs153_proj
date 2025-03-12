@@ -163,19 +163,44 @@ async def critique(ctx, *, idea=None):
     add_to_memory(user_id, "Critic", response)
     await ctx.send(f"**Critic's Response:**\n{response}")
 
+@bot.command(name="help", help="Displays available commands.")
+async def custom_help(ctx):
+    help_text = """
+**Bot Commands:**
+
+- `!help_roles` - Shows all available agent roles.
+- `!clear_memory` - Clears your conversation history with the bot.
+- `!remindme <message> <time>` - Sets a reminder. (e.g., `!remindme "Continue Brainstorming" 2h`).
+- `!ping` - Checks if the bot is online.
+
+Use `!help <command>` for details on a specific command.
+"""
+    await ctx.send(help_text)
+
 @bot.command(name="help_roles", help="Shows available agent roles and their functions.")
 async def help_roles(ctx):
     help_text = """
 **Available Agent Roles:**
 
-1. `!brainstorm <question>` - Get creative ideas and possibilities
-   Example: `!brainstorm How can I improve my coding skills?`
+1. **Brainstormer** - Generates creative ideas.
+   - Command: `!brainstorm <question>`
+   - Example: `!brainstorm How can I improve my coding skills?`
 
-2. `!critique <idea>` - Get evaluation and feedback on an idea
-   Example: `!critique I want to learn programming by watching YouTube videos`
+2. **Critic** - Evaluates and provides feedback on an idea.
+   - Command: `!critique <idea>`
+   - Example: `!critique I want to learn programming by watching YouTube videos`
 
-3. `!multiagent <question>` - Use all agents in a collaborative conversation
-   Example: `!multiagent What's the best way to learn machine learning?`
+3. **Search Agent** - Gathers factual information from the web.
+   - Command: `!searchagent <query>`
+   - Example: `!searchagent Latest AI trends in 2025`
+
+4. **Multi-Agent** - Uses multiple agents in a collaborative conversation.
+   - Command: `!multiagent <question>`
+   - Example: `!multiagent What's the best way to learn machine learning?`
+   - Optional: Use `--search` to include web search in the response.
+     - Example: `!multiagent --search Best ways to invest in stocks`
+
+Use `!help <command>` for details on a specific command.
 """
     await ctx.send(help_text)
 
